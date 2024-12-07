@@ -17,6 +17,11 @@ from object_detection.utils import label_map_util
 from object_detection.utils import visualization_utils as viz_utils
 from object_detection.core import data_parser
 from object_detection.core import standard_fields as fields
+import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib import ticker
+
 
 from object_detection.metrics.tf_example_parser import BoundingBoxParser, StringParser, Int64Parser, FloatParser
 
@@ -178,32 +183,68 @@ def process_detections(input_tfrecord_path, model, categories, draw_option, draw
     return confusion_matrix
     
 def display(confusion_matrix, categories, output_path):
-    '''
-    Displays confusion matrix as pandas df to terminal and saves as CSV
-    Args:
-      confusion_matrix: matrix to be displayed
-      categories: ordered array of class IDs
-      output_path: where to save CSV
-    '''
     print('\nConfusion Matrix:')
     print(confusion_matrix, '\n')
+
+    num_classes = len(confusion_matrix)
+    category_names = [category['name'] for category in categories]
+    category_names.append("Background")
+
+    df_cm = pd.DataFrame(confusion_matrix, range(num_classes), range(num_classes))
+    sns.set(font_scale=1.4)
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(df_cm, annot=True, fmt='g', annot_kws={"size": 16}, xticklabels=category_names, yticklabels=category_names)
+    
+    plt.xlabel('Predicted label')
+    plt.ylabel('True label')
+    plt.show()
+
     results = []
 
     for i in range(len(categories)):
         id = categories[i]['id'] - 1
         name = categories[i]['name']
         
-        total_target = np.sum(confusion_matrix[id,:])
-        total_predicted = np.sum(confusion_matrix[:,id])
+        total_target = np.sum(confusion_matrix[id, :])
+        total_predicted = np.sum(confusion_matrix[:, id])
         
-        precision = float(confusion_matrix[id, id] / total_predicted)
-        recall = float(confusion_matrix[id, id] / total_target)
+        true_positive = confusion_matrix[id, id]
+        false_positive = total_predicted - true_positive
+        false_negative = total_target - true_positive
+        true_negative = np.sum(confusion_matrix) - (true_positive + false_positive + false_negative)
         
-        results.append({'category' : name, f'precision_@{IOU_THRESHOLD}IOU' : precision, f'recall_@{IOU_THRESHOLD}IOU' : recall})
+        accuracy = (true_positive + true_negative) / (true_positive + false_positive + false_negative + true_negative)
+        precision = true_positive / (true_positive + false_positive) 
+        recall = true_positive / (true_positive + false_negative) 
+        f1_score = 2 * (precision * recall) / (precision + recall)
+       
+        results.append({
+            'category': name, 
+            'TP': true_positive,
+            'FP': false_positive,
+            'FN': false_negative,
+            'TN': true_negative,
+            f'Accuracy': accuracy, 
+            f'Precision': precision, 
+            f'Recall': recall,
+            f'F1-Score': f1_score,
+        })
     
     df = pd.DataFrame(results)
     print(df)
+
+    # Calculate mean averages for the specific columns 6, 7, 8, and 9
+    mean_avg = df.iloc[:, 5:9].mean()
+    print("\nMean Average:")
+    print("Accuracy: ", mean_avg[f'Accuracy'])
+    print("Precision: ", mean_avg[f'Precision'])
+    print("Recall: ", mean_avg[f'Recall'])
+    print("F1-score: ", mean_avg[f'F1-Score'])
+   
+    
     df.to_csv(output_path)
+    df_cm.to_csv(output_path+".real.csv")
+
 
 def draw(image_name, image_path, image, categories, groundtruth_boxes, groundtruth_classes, detection_boxes, detection_classes, detection_scores):
     '''
